@@ -91,14 +91,23 @@ namespace ChronosRandomEmployees
                 DateTime dateExecute = GetDateExecute();                             
                 try
                 {
+                    bool executeNow = false;
                     lastDateExecute = GetLastExecuteService(cnn);
                     if (lastDateExecute.HasValue)
+                    {
                         WriteToFile("Ultima Ejecución: " + lastDateExecute.Value.ToString());
+                        if (lastDateExecute.Value.AddHours(24) < dateExecute)
+                            executeNow = true;
+                    }                        
                     else
+                    {
                         WriteToFile("Primera Ejecución del Servicio");
+                        if (now.AddMinutes(-6) < dateExecute && dateExecute < now.AddMinutes(6))
+                            executeNow = true;
+                    }
+                        
 
-                    if (now.AddMinutes(-6) < dateExecute && dateExecute < now.AddMinutes(6) &&
-                         (!lastDateExecute.HasValue || lastDateExecute.Value.AddHours(24) < dateExecute))
+                    if (executeNow)
                     {
                         WriteToFile("Obtener los empleados de la BD");
                         employees = GetEmployees(cnn);

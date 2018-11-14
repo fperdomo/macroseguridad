@@ -110,7 +110,7 @@ namespace ChronosRandomEmployees
                     if (executeNow)
                     {
                         WriteToFile("Obtener los empleados de la BD");
-                        employees = GetEmployees(cnn);
+                        employees = GetActiveEmployees(cnn);
 
                         if (employees.Any())
                         {
@@ -293,7 +293,7 @@ namespace ChronosRandomEmployees
             return DbConnection;
         }
 
-        private List<long> GetEmployees(OdbcConnection cnn)
+        private List<long> GetActiveEmployees(OdbcConnection cnn)
         {
             List<long> employees = new List<long>();
             OdbcCommand DbCommand;
@@ -301,7 +301,7 @@ namespace ChronosRandomEmployees
             try
             {
                 DbCommand = cnn.CreateCommand();
-                DbCommand.CommandText = "SELECT EmpleadoID FROM EMPLEADO";
+                DbCommand.CommandText = "SELECT EmpleadoID FROM EMPLEADO WHERE EmpleadoInactivo = 0";
                 DbReader = DbCommand.ExecuteReader();
                 int fCount = DbReader.FieldCount;
                 while (DbReader.Read())

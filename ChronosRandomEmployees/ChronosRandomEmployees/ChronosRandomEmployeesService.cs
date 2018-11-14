@@ -26,6 +26,7 @@ namespace ChronosRandomEmployees
         string _countEmpStr;
         int _countEmp;
         string _message;
+        List<Device> _devicesReintent;
         Timer timer = new Timer();
         public ChronosRandomEmployeesService()
         {
@@ -44,6 +45,7 @@ namespace ChronosRandomEmployees
         {
             try
             {
+                _devicesReintent = new List<Device>();
                 Configuration configuration = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
                 AppSettingsSection appSettings = configuration.AppSettings;
                 _dsnName = appSettings.Settings["ODBC"].Value;
@@ -78,8 +80,7 @@ namespace ChronosRandomEmployees
         }
 
         private void OnElapsedTime(object source, ElapsedEventArgs e)
-        {
-
+        {           
             try
             {
                 DateTime now = DateTime.Now;
@@ -105,10 +106,14 @@ namespace ChronosRandomEmployees
                         if (employees.Any())
                         {
                             Random rnd = new Random();
-                            IEnumerable<long> selectedEmployees = employees.OrderBy(x => rnd.Next()).Take(5);
-                            List<Device> devices = GetDevices(cnn);
-                            if (SendDataToDevices(cnn, selectedEmployees, devices, dateExecute))
-                                InsertLastExecuteService(cnn, dateExecute, !lastDateExecute.HasValue);
+                            IEnumerable<long> selectedEmployees = employees.OrderBy(x => rnd.Next()).Take(_countEmp);
+                            foreach (var employeeId in selectedEmployees)
+                            {
+                                InsertSelectedEmployee(cnn, employeeId, dateExecute);
+                            }
+                            List<Device> totalDevices = GetDevices(cnn);                            
+                            SendDataToDevices(cnn, selectedEmployees, totalDevices, dateExecute);
+                            InsertLastExecuteService(cnn, dateExecute, !lastDateExecute.HasValue);
                         }
                         else
                         {
@@ -118,6 +123,12 @@ namespace ChronosRandomEmployees
                     else
                     {
                         WriteToFile("INFO: No es tiempo de ejecutarse: " + dateExecute);
+                        if (lastDateExecute.HasValue)
+                        {
+                            WriteToFile("INFO: REINTENTO: " + dateExecute);                         
+                            var selectedEmployees = GetSelectedEmployee(cnn, dateExecute);
+                            SendDataToDevices(cnn, selectedEmployees, _devicesReintent, dateExecute);
+                        }                      
                     }
                 }
                 catch (Exception ex)
@@ -165,45 +176,58 @@ namespace ChronosRandomEmployees
 
         private bool SendDataToDevices(OdbcConnection cnn, IEnumerable<long> selectedEmployees, List<Device> devices, DateTime dateExecute)
         {
-            bool resultOk = true;
-            List<string> lstErrorsConn = new List<string>();
-            List<string> lstErrorsSMS = new List<string>();
-            List<string> lstErrorsSMSUsers = new List<string>();
+            List<Device> deviceError = new List<Device>();
+            bool resultOk = true;            
             WriteToFile("Comienza envio a relojes");
             try
             {
                 foreach (var device in devices)
                 {
+                    List<string> lstErrorsConn = new List<string>();
+                    List<string> lstErrorsSMS = new List<string>();
+                    List<string> lstErrorsSMSUsers = new List<string>();
+
                     WriteToFile(string.Format("Conectando al reloj Id:{0}, Ip:{1}, Puerto:{2}", device.Id, device.Ip, device.Puerto));
-                    int connectionResult = SDK.sta_ConnectTCP(lstErrorsConn, device.Ip, device.Puerto, "0");
+                    int connectionResult = SDK.sta_ConnectTCP(lstErrorsConn, device.Ip, "4370", "0");
                     if (connectionResult <= 0)
+                    {
                         resultOk = ShowErrors(lstErrorsConn);
+                        if (!deviceError.Contains(device))
+                            deviceError.Add(device);
+                    }                        
                     else
                     {
                         WriteToFile("Conexión con reloj - OK");
                         WriteToFile("Enviando Mensaje");
-                        int sendSMSResult = SDK.sta_SetSMS(lstErrorsSMS, 1.ToString(), 254.ToString(), 1440.ToString(), DateTime.Now, _message); ;
+                        int sendSMSResult = SDK.sta_SetSMS(lstErrorsSMS, 1.ToString(), 254.ToString(), 1440.ToString(), _message); ;
                         if (sendSMSResult <= 0)
+                        {
                             resultOk = ShowErrors(lstErrorsSMS);
+                            if (!deviceError.Contains(device))
+                                deviceError.Add(device);
+                        }                            
                         else
                         {
                             WriteToFile("Mensaje Enviado - OK");
                             WriteToFile("Empleados Seleccionados");
                             foreach (var employeeId in selectedEmployees)
                             {
-                                WriteToFile("Empleado Nro. " + employeeId);
+                                WriteToFile("Mensaje enviado a empleado Nro. " + employeeId + " Dispositivo Id:" + device.Ip);
 
                                 int sendSMSUserResult = SDK.sta_SetUserSMS(lstErrorsSMSUsers, 1, employeeId);
                                 if (sendSMSUserResult <= 0)
+                                {
                                     resultOk = ShowErrors(lstErrorsSMSUsers);
-                                InsertSelectedEmployee(cnn, employeeId, dateExecute);
+                                    if (!deviceError.Contains(device))
+                                        deviceError.Add(device);
+                                }  
                             }
-
                         }
+                        WriteToFile(string.Format("Desconectado reloj Id:{0}, Ip:{1}, Puerto:{2}", device.Id, device.Ip, device.Puerto));
+                        SDK.sta_DisConnect();
                     }                    
-                    SDK.sta_DisConnect();
-                    WriteToFile(string.Format("Desconectado reloj Id:{0}, Ip:{1}, Puerto:{2}", device.Id, device.Ip, device.Puerto));
                 }
+                _devicesReintent = deviceError;
             }
             catch (Exception ex)
             {
@@ -333,9 +357,9 @@ namespace ChronosRandomEmployees
                 {
                     DbCommand.CommandText = "UPDATE ULTIMO SET UltimoMarca = ? WHERE UltimoEmpleado = ?";
                 }
-            
-                DbCommand.Parameters.Add("@param1", OdbcType.DateTime).Value = dateExecute;
-                DbCommand.Parameters.Add("@param2", OdbcType.Int).Value = "999999999";
+                DbCommand.Parameters.Add("@param1", OdbcType.Int).Value = "999999999";
+                DbCommand.Parameters.Add("@param2", OdbcType.DateTime).Value = dateExecute;
+               
                 DbCommand.ExecuteNonQuery();
 
                 DbCommand.Dispose();
@@ -346,8 +370,7 @@ namespace ChronosRandomEmployees
             }
 
         }
-
-
+        
         private void InsertSelectedEmployee(OdbcConnection cnn, long employeeId, DateTime dateExecute)
         {
             OdbcCommand DbCommand;
@@ -366,6 +389,37 @@ namespace ChronosRandomEmployees
             {
                 WriteToFile("ERROR: Error al insertar los empleados seleccionados de la base. " + " - " + ex.Message);
             }
+        }
+
+        private IEnumerable<long> GetSelectedEmployee(OdbcConnection cnn, DateTime dateExecute)
+        {
+            List<long> result = new List<long>();
+            OdbcCommand DbCommand;
+            OdbcDataReader DbReader;
+            try
+            {
+                DbCommand = cnn.CreateCommand();
+                DbCommand.CommandText = "SELECT EmpleadoID FROM LIQHORAS1  WHERE LiqHoraFecha = ? AND LiqSeccionTrabaja = ?";
+                DbCommand.Parameters.Add("@param1", OdbcType.DateTime).Value = dateExecute;
+                DbCommand.Parameters.Add("@param2", OdbcType.Int).Value = "999999999";
+                DbReader = DbCommand.ExecuteReader();
+                int fCount = DbReader.FieldCount;
+                while (DbReader.Read())
+                {
+                    for (int i = 0; i < fCount; i++)
+                    {
+                        result.Add(DbReader.GetInt64(0));
+                    }
+                }
+                DbReader.Close();
+                DbCommand.Dispose();
+            }
+            catch (OdbcException ex)
+            {
+                WriteToFile("ERROR: Error al obtener la ultima ejecución de la base. " + " - " + ex.Message);
+            }
+
+            return result;
         }
 
         private List<Device> GetDevices(OdbcConnection cnn)

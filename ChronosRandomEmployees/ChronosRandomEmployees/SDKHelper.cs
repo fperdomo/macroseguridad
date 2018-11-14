@@ -86,7 +86,7 @@ namespace ChronosRandomEmployees
         }
 
         public int sta_SetSMS(List<string> lblOutputInfo, string txtSMSID, string cbTag, string txtValidMin,
-           DateTime dtStartTime, string txtContent)
+           string txtContent)
         {
             if (GetConnectState() == false)
             {
@@ -116,7 +116,7 @@ namespace ChronosRandomEmployees
             int iSMSID = Convert.ToInt32(txtSMSID.Trim());
             int iTag = 0;
             int iValidMins = Convert.ToInt32(txtValidMin.Trim());
-            string sStartTime = dtStartTime.ToString().Trim();
+            string sStartTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm").Trim();
             string sContent = txtContent.Trim();
             string sTag = cbTag.Trim();
 
@@ -189,7 +189,7 @@ namespace ChronosRandomEmployees
             }
             axCZKEM1.EnableDevice(iMachineNumber, true);
 
-            return 1;
+            return idwErrorCode != 0 ? idwErrorCode : 1;
         }
     }
 }

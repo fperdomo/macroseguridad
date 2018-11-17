@@ -191,5 +191,33 @@ namespace ChronosRandomEmployees
 
             return idwErrorCode != 0 ? idwErrorCode : 1;
         }
+
+        public int sta_DelUserSMS(List<string> lblOutputInfo, int txtSMSID, long cbUserID)
+        {
+            if (GetConnectState() == false)
+            {
+                lblOutputInfo.Add("*Please connect first!");
+                return -1024;
+            }
+
+            int idwErrorCode = 0;
+            int iSMSID = txtSMSID;
+            string sEnrollNumber = cbUserID.ToString();
+
+            axCZKEM1.EnableDevice(iMachineNumber, false);
+            if (axCZKEM1.SSR_DeleteUserSMS(iMachineNumber, sEnrollNumber, iSMSID))
+            {
+                axCZKEM1.RefreshData(iMachineNumber);//After you have set user short message,you should refresh the data of the device
+                lblOutputInfo.Add("Successfully delete user SMS! ");
+            }
+            else
+            {
+                axCZKEM1.GetLastError(ref idwErrorCode);
+                lblOutputInfo.Add("*Operation failed,ErrorCode=" + idwErrorCode.ToString());
+            }
+            axCZKEM1.EnableDevice(iMachineNumber, true);
+
+            return idwErrorCode != 0 ? idwErrorCode : 1;
+        }
     }
 }

@@ -109,19 +109,26 @@ namespace ChronosRandomEmployees
 
                     if (executeNow)
                     {
+                        if (lastDateExecute.HasValue)
+                        {
+                            WriteToFile("Borrar mensaje a los usuarios anteriores...");
+                            ClearUserMessage(cnn, lastDateExecute.Value);
+                        }
+                        
+
                         WriteToFile("Obtener los empleados de la BD");
                         employees = GetActiveEmployees(cnn);
 
                         if (employees.Any())
                         {
                             Random rnd = new Random();
-                            IEnumerable<long> selectedEmployees = employees.OrderBy(x => rnd.Next()).Take(_countEmp);
+                            List<long> selectedEmployees = employees.OrderBy(x => rnd.Next()).Take(_countEmp).ToList();
                             foreach (var employeeId in selectedEmployees)
                             {
                                 InsertSelectedEmployee(cnn, employeeId, dateExecute);
                             }
                             List<Device> totalDevices = GetDevices(cnn);                            
-                            SendDataToDevices(cnn, selectedEmployees, totalDevices, dateExecute);
+                            SendDataToDevices(cnn, selectedEmployees, totalDevices);
                             InsertLastExecuteService(cnn, dateExecute, !lastDateExecute.HasValue);
                         }
                         else
@@ -134,9 +141,9 @@ namespace ChronosRandomEmployees
                         WriteToFile("INFO: No es tiempo de ejecutarse: " + dateExecute);
                         if (lastDateExecute.HasValue)
                         {
-                            WriteToFile("INFO: REINTENTO: " + dateExecute);                         
-                            var selectedEmployees = GetSelectedEmployee(cnn, dateExecute);
-                            SendDataToDevices(cnn, selectedEmployees, _devicesReintent, dateExecute);
+                            WriteToFile("INFO: REINTENTO envio de: " + lastDateExecute);                         
+                            var selectedEmployees = GetSelectedEmployee(cnn, lastDateExecute.Value);
+                            SendDataToDevices(cnn, selectedEmployees, _devicesReintent);
                         }                      
                     }
                 }
@@ -183,7 +190,7 @@ namespace ChronosRandomEmployees
             return false;
         }
 
-        private bool SendDataToDevices(OdbcConnection cnn, IEnumerable<long> selectedEmployees, List<Device> devices, DateTime dateExecute)
+        private bool SendDataToDevices(OdbcConnection cnn, IEnumerable<long> selectedEmployees, List<Device> devices)
         {
             List<Device> deviceError = new List<Device>();
             bool resultOk = true;            
@@ -271,6 +278,56 @@ namespace ChronosRandomEmployees
             }
         }
 
+        private void ClearUserMessage(OdbcConnection cnn, DateTime dateExecute)
+        {
+            var selectedEmployees = GetSelectedEmployee(cnn, dateExecute);
+            List<Device> totalDevices = GetDevices(cnn);
+            ClearDataUserToDevices(cnn, selectedEmployees, totalDevices, dateExecute);
+        }
+
+        private bool ClearDataUserToDevices(OdbcConnection cnn, IEnumerable<long> selectedEmployees, List<Device> devices, DateTime dateExecute)
+        {
+            List<Device> deviceError = new List<Device>();
+            bool resultOk = true;
+            WriteToFile("L: Comienza limpieza de mensaje de usuarios en relojes");
+            try
+            {
+                foreach (var device in devices)
+                {
+                    List<string> lstErrorsConn = new List<string>();
+                    List<string> lstErrorsSMS = new List<string>();
+                    List<string> lstErrorsSMSUsers = new List<string>();
+
+                    WriteToFile(string.Format("Conectando al reloj Id:{0}, Ip:{1}, Puerto:{2}", device.Id, device.Ip, device.Puerto));
+                    int connectionResult = SDK.sta_ConnectTCP(lstErrorsConn, device.Ip, "4370", "0");
+                    if (connectionResult <= 0)
+                    {
+                        ShowErrors(lstErrorsConn);
+                    }else
+                    {
+                        foreach (var employeeId in selectedEmployees)
+                        {                            
+                            int sendSMSUserResult = SDK.sta_DelUserSMS(lstErrorsSMSUsers, 1, employeeId);
+                            if (sendSMSUserResult <= 0)
+                            {
+                                resultOk = ShowErrors(lstErrorsSMSUsers);                                
+                            }
+                            else
+                            {
+                                WriteToFile("Mensaje BORRADO a empleado Nro. " + employeeId + " Dispositivo Id:" + device.Ip);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteToFile("ERROR: Error conectando y vaciando mensaje de usuario en relojes: " + ex.Message);
+            }
+
+            return resultOk;
+        }
+
         #region ConnectToDataBase
 
         private OdbcConnection OpenConnect()
@@ -321,7 +378,6 @@ namespace ChronosRandomEmployees
             return employees;
         }
 
-
         private DateTime? GetLastExecuteService(OdbcConnection cnn)
         {
             DateTime? result = (DateTime?)null;
@@ -361,13 +417,15 @@ namespace ChronosRandomEmployees
                 if (isFirstExecute)
                 {
                     DbCommand.CommandText = "INSERT INTO ULTIMO(UltimoEmpleado, UltimoMarca) VALUES (?, ?)";
+                    DbCommand.Parameters.Add("@param1", OdbcType.Int).Value = "999999999";
+                    DbCommand.Parameters.Add("@param2", OdbcType.DateTime).Value = dateExecute;
                 }
                 else
                 {
                     DbCommand.CommandText = "UPDATE ULTIMO SET UltimoMarca = ? WHERE UltimoEmpleado = ?";
-                }
-                DbCommand.Parameters.Add("@param1", OdbcType.Int).Value = "999999999";
-                DbCommand.Parameters.Add("@param2", OdbcType.DateTime).Value = dateExecute;
+                    DbCommand.Parameters.Add("@param1", OdbcType.DateTime).Value = dateExecute;
+                    DbCommand.Parameters.Add("@param2", OdbcType.Int).Value = "999999999";
+                }              
                
                 DbCommand.ExecuteNonQuery();
 
